@@ -1,0 +1,95 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// source.proto defines messages that describe a source of data in the FPS system,
+// for both inter-OBOS and UI websocket comms. It's a superset of "sensor"
+// that includes things like files.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps";
+package t1.fps;
+
+import "fps/model/media.proto";
+import "google/protobuf/duration.proto";
+
+// SourceSample describes how to sample frames from a source.
+// This applies equally to file and network stream sources.
+// Sampling is applied per-stream to the primary streams.
+message SourceSample {
+  oneof sample {
+    // time_interval indicates that returned frames will be spaced
+    // by AT LEAST the given interval (e.g. 1/10 s for 10 fps) based on the
+    // presentation timestamp. Frames arriving any faster will be dropped.
+    google.protobuf.Duration time_interval = 1;
+    // frame_interval indicates that every nth frame should be returned.
+    // The nth frame of any primary stream will trigger a frame to be returned.
+    int32 frame_interval = 2;
+  }
+}
+
+// SourceFileFraming describes how to extract frames from a file when the source
+// is a file or files. Does not apply to real-time network streams.
+message SourceFileFraming {
+  // FileThrottle can be combined with SourceSample to control the pace of
+  // frames and limit CPU consumption.
+  enum FileThrottle {
+    // FILE_THROTTLE_NONE indicates that files will be read as fast as possible.
+    // Frames will almost certainly be dropped.
+    FILE_THROTTLE_NONE = 0;
+
+    // FILE_THROTTLE_PRESENTATION_RATE indicates that frames will be returned
+    // at the presentation rate. Frames will be dropped if the pipeline does
+    // not consume them fast enough.
+    FILE_THROTTLE_PRESENTATION_RATE = 1;
+
+    // FILE_THROTTLE_LOCK_STEP indicates that frames will be returned as
+    // fast as they are consumed by the pipeline.
+    FILE_THROTTLE_LOCK_STEP = 2;
+  }
+  FileThrottle throttle = 1;
+
+  reserved 2, 3;
+}
+
+// SourceDirectoryIngest describes how to ingest a directory of files.
+// Only applies when the source URL is a directory.
+// SourceFileFraming is then applied to each file in the directory, individually.
+message SourceDirectoryIngest {
+  enum FileSelection {
+    FILE_SELECT_ALL = 0;            // Default. All existing and new files. Runs until stopped.
+    FILE_SELECT_ONLY_NEW = 1;       // Only new files since the ingest started. Runs until stopped.
+    FILE_SELECT_ONLY_EXISTING = 2;  // Only files that existed when the ingest started. Terminates.
+  }
+
+  FileSelection file_selection = 1;  // Applies equally to files and subdirectories, if not ignored.
+
+  // ignore_subdirs indicates that subdirectories (whether existing or new)
+  // should not be consumed.
+  bool ignore_subdirs = 2;
+
+  // ignore_regex ignores files matching this regex, unless empty.
+  string ignore_regex = 3;
+}
+
+// Source represents a source of data and how it is to be ingested.
+message Source {
+  model.MediaKey key = 1;
+  SourceSample sample = 2;
+  SourceFileFraming file_framing = 3;
+  reserved 4;
+  SourceDirectoryIngest directory_ingest = 5;
+}

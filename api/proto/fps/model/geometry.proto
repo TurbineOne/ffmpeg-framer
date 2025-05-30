@@ -1,0 +1,149 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// geometry.proto describes the basic geometry messages for detections.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "google/protobuf/duration.proto";
+
+// When adding new messages, consider first if we should reuse an existing ROS
+// message from here:
+// https://github.com/foxglove/message-schemas/tree/main/proto/ros/geometry_msgs
+//
+// Reuse will make it easier if we start interacting directly with ROS.
+// The ROS messages are mostly floating point, 3D, cartesian coordinate frames,
+// so they aren't useful for pixel-oriented data.
+
+// SpanTime is a span of time relative to the beginning of a time series data.
+message SpanTime {
+  google.protobuf.Duration offset = 1;    // relative to the start of the data
+  google.protobuf.Duration duration = 2;  // relative to the "begin" time
+}
+
+// Span1D is a 1D span in a time series data frame, measured in samples of the
+// source data.
+message Span1D {
+  reserved 1;
+
+  int32 begin = 2;
+  int32 end = 3;  // begin <= end
+}
+
+// In all 2D messages, the x-axis is horizontal and the y-axis is vertical.
+// The origin is at the top-left corner of the image.
+// All points are normalized to [0, 1] x [0, 1] in the image.
+
+// Point2D is a 2D point in an image.
+message Point2D {
+  reserved 1;
+
+  double x = 2;
+  double y = 3;
+}
+
+// Size2D is a 2D size of an image.
+message Size2D {
+  int32 width = 2;
+  int32 height = 3;
+}
+
+// Point3D is a 3D point in a scene.
+message Point3D {
+  reserved 1;
+
+  double x = 2;
+  double y = 3;
+  double z = 4;
+  double score = 5;  // Optional.
+}
+
+// Segment2D is a set of points in an image, usually only two. If more than two,
+// they are ordered, but not necessarily colinear.
+message Segment2D {
+  reserved 1;
+
+  repeated Point2D points = 2;
+}
+
+// BoundingBox2D is a rectangle in an image.
+// Width and height are normalized to [0, 1] based on the max dimension of the image.
+// For a point detection, set width and height to 0.
+message BoundingBox2D {
+  reserved 1;
+
+  Point2D origin = 2;  // Top-left corner, min x, min y.
+  double width = 3;
+  double height = 4;
+}
+
+// Wireframe is a collection of named segments, e.g., "forearm", "leg", etc.,
+// usually representing a person.
+//
+// Note: Because a map is being used, segment names cannot be duplicated.
+message Wireframe2D {
+  reserved 1;
+
+  map<string, Segment2D> segments = 2;
+}
+
+// PointCollection3D is a collection of named points in scene coordinates
+// usually representing a person.
+//
+// Note: Because a map is being used, Point3D names cannot be duplicated.
+message PointCollection3D {
+  reserved 1;
+
+  map<string, Point3D> points = 2;
+}
+
+// Fov2D is a 2D field of view in an image.
+message Fov2D {
+  double horiz_deg = 1;
+  double vert_deg = 2;
+}
+
+// PointGeo is a 3D point given in geographical coordinates.
+message PointGeo {
+  reserved 1;
+
+  double lat_deg = 2;
+  double long_deg = 3;
+  double alt_m = 4;
+  // TODO: covariance matrix?
+}
+
+// OrientationGeo describes the orientation of an object in the
+// geographical coordinate frame.
+message OrientationGeo {
+  reserved 1;
+
+  double yaw_deg = 2;
+  double pitch_deg = 3;
+  double roll_deg = 4;
+}
+
+// PoseGeo describes the position and orientation of an object in the
+// geographical coordinate frame.
+message PoseGeo {
+  reserved 1;
+
+  PointGeo position = 2;
+  // TODO: orientation as a quaternion or yaw/pitch/roll? Relative to 0,0,0 RHR?
+}

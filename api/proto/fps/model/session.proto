@@ -1,0 +1,50 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// session.proto defines messages for setting up and tearing down sessions
+// for use with unary gRPC calls that require statefulness.
+//
+// We've opted to use session setups instead of streaming RPCs because
+// it's just much easier to build unary servers in Python, which is the most
+// common implementation of these APIs.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+// NewSession() returns a session ID when the server is ready to accept requests.
+// May block until the model is initialized and ready to accept calls.
+// Returns a gRPC error if it can't support a new session.
+// Parameters are intended for fps models/workflows that support run time
+// arguments such as open vocabulary models or example shot.
+// Can be left blank if unused, but if used should match the pydantic class
+// defined by the model_parameters field in framework.toml
+// Upstream these are populated by AgentDetectRequest
+message NewSessionRequest {
+  string parameters = 1;
+}
+message NewSessionResponse {
+  int32 session_id = 1;
+}
+
+// CloseSession() releases the session and any associated memory.
+// Only called if an instance is expected to serve multiple
+// sessions concurrently and/or outlive the first session.
+message CloseSessionRequest {
+  int32 session_id = 1;
+}
+message CloseSessionResponse {}

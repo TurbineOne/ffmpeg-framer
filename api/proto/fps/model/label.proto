@@ -1,0 +1,72 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// label.proto describes a label applied to a frame of data.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/annotation.proto";
+import "fps/model/detection.proto";
+import "fps/model/media.proto";
+import "fps/model/model.proto";
+
+// Label represents a single label for a frame of data. Labels are the top-level
+// object we pass to trainers, so they encompass a variety of kinds of labels.
+// A label may be manually created by a human, or it may be an approved suggestion
+// by a suggester model, or it may be feedback on a detection, including
+// possibly a manual correction.
+message Label {
+  string uuid = 1;        // A unique identifier for this label.
+  string class_uuid = 2;  // Dataset class to which this label refers.
+
+  // True if this is a negative label. This is included in label, instead of
+  // annotation, to support marking negative regions in large images, in which
+  // case the `Label` must still support an annotation with a box or polygon.
+  bool negative = 3;
+
+  // Optional field that indicates that this label is part of a group of labels
+  // that has been derived from a single label. This is used to track the
+  // provenance of labels.
+  string parent_uuid = 4;
+
+  // The annotation field is ALWAYS considered to be valid. If this is a manually
+  // approved suggestion or detection, the detection's annotation is copied here.
+  // If this is a manually modified suggestion or detection, annotation is the
+  // modification. If annotation is empty, it indicates that the label
+  // refers to the entire frame. This is often the case for negative labels.
+  Annotation annotation = 10;
+
+  MediaKey media_key = 11;  // The media to which this label refers.
+
+  // If this is feedback, model_key is the model that produced the detection or suggestion.
+  ModelKey model_key = 12;
+
+  Detection detection = 13;  // The original detection if this is feedback.
+
+  // Feedback is set if this label is human feedback on a detection.
+  enum Feedback {
+    FEEDBACK_NOT_APPLICABLE = 0;  // This isn't feedback. It's a human-generated label.
+    FEEDBACK_UNKNOWN = 1;         // Feedback has not (yet) been provided on this detection.
+    FEEDBACK_CORRECT = 2;         // The detection is correct.
+    FEEDBACK_INCORRECT = 3;       // The detection is incorrect.
+    FEEDBACK_MODIFIED = 4;        // The annotation is a corrected version of the detection.
+    FEEDBACK_UNCERTAIN = 5;       // Unsure whether the detection is correct.
+  }
+  Feedback feedback = 20;
+}

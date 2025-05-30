@@ -1,0 +1,67 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// detection.proto describes messages that detectors emit.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/annotation.proto";
+import "fps/model/media.proto";
+import "fps/model/model.proto";
+
+// Detection represents a single detection in piece of media. Detections are
+// the top-level object returned from detectors.
+message Detection {
+  string name = 1;         // Name of the thing detected. Typically the class name.
+  string class_uuid = 2;   // Class UUID of the thing detected. Only provided by automl models.
+  float score = 3;         // [0.0, 1.0]
+  string tracking_id = 4;  // Unique ID that tracks the detected entity across time.
+  // TagValue represents the value side of a tag map, e.g., for the tag
+  // key "age", the value might be "60" with a score of 0.7.
+  message TagValue {
+    string value = 1;
+    float score = 2;  // [0.0, 1.0]
+  }
+  map<string, TagValue> tags = 5;  // Tags associated with this detection, e.g., age=60 @90%.
+
+  // If no annotation is provided, the detection refers to the entire frame.
+  Annotation annotation = 10;
+
+  MediaKey media_key = 11;  // Media in which this detection was made.
+}
+
+// DetectionSet represents a set of detections made by a single detector.
+message DetectionSet {
+  ModelKey model_key = 1;
+  repeated Detection detections = 2;
+}
+
+// Datum represents a set of media as it transits the pipeline,
+// accreting detections as it goes.
+message Datum {
+  // Consumers of Datum might not need to process every media in this set.
+  // We pass a full Media object instead of just the MediaKey, so consumers
+  // can examine the MediaInfo and know if it's a supported modality.
+  // However, medias here may or may not have a format/payload. If the payload
+  // is desired, the consumer can request it from the datalake.
+  repeated Media medias = 1;
+
+  // detection_sets are the detections made by previous stages in the pipeline.
+  repeated DetectionSet detection_sets = 2;
+}

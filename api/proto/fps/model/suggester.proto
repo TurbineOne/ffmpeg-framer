@@ -1,0 +1,60 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// suggester.proto describes a service that detects items of interest in
+// media given to the suggester.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/detection.proto";
+import "fps/model/label.proto";
+import "fps/model/media.proto";
+import "fps/model/session.proto";
+
+message Seed {
+  string class_id = 1;
+
+  oneof seed {
+    string description = 3;
+    Label label = 4;
+  }
+}
+
+message SuggestRequest {
+  int32 session_id = 1;
+  repeated Seed seeds = 2;
+  repeated MediaKey media_keys = 4;
+}
+
+message Suggestion {
+  // seed_ref_index is canonical. Ignore class_uuid sent in the Detection
+  int32 seed_ref_index = 1;
+
+  Detection detection = 4;
+}
+
+message SuggestResponse {
+  repeated Suggestion suggestions = 1;
+}
+
+service Suggester {
+  rpc NewSession(NewSessionRequest) returns (NewSessionResponse);
+  rpc Suggest(SuggestRequest) returns (SuggestResponse) {}
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse) {}
+}

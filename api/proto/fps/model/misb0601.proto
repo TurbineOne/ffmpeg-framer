@@ -1,0 +1,73 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// misb0601.proto describes objects that are used in the MISB KLV metadata
+// standard.  The objects are defined in the MISB ST0601 standard.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/geometry.proto";
+import "google/protobuf/timestamp.proto";
+
+message MISBPlatform {
+  OrientationGeo orientation = 1;
+}
+
+message MISBSensor {
+  PointGeo location = 1;
+  Fov2D fov = 2;
+  OrientationGeo relative_orientation = 4;
+  Point2D velocity_mps = 5;
+}
+
+message MISBTarget {
+  PointGeo location = 1;
+  double width_m = 2;
+  uint32 track_gate_pxls_width = 3;
+  uint32 track_gate_pxls_height = 4;
+  double ground_range_m = 5;
+  string id = 6;
+  OrientationGeo relative_orientation = 7;
+}
+
+message MISBPoi {
+  string id = 1;
+  PointGeo location = 2;
+  OrientationGeo relative_orientation = 3;
+}
+
+message MISBImage {
+  string sensor_type = 1;
+  string coordinate_system = 2;
+  double slant_range_m = 3;
+  PointGeo center = 4;
+  PointGeo upper_left = 5;
+  PointGeo upper_right = 6;
+  PointGeo lower_left = 7;
+  PointGeo lower_right = 8;
+}
+
+message MISB0601 {
+  google.protobuf.Timestamp time = 1;
+  MISBPlatform platform = 2;
+  MISBSensor sensor = 3;
+  MISBImage image = 4;
+  MISBTarget target = 5;
+  repeated MISBPoi pois = 6;
+}

@@ -1,0 +1,139 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// trainer.proto describes a service that trains a model.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/label.proto";
+import "fps/model/parameters.proto";
+
+message TrainResponse {
+  string status = 1;
+}
+
+message TrainRequest {
+  string base_dir = 1;
+  map<string, string> args = 2;  // key: value for trainer args e.g. seed
+}
+
+// Deprecated; replaced by Trainer2.
+service Trainer {
+  rpc Train(TrainRequest) returns (stream TrainResponse) {}
+}
+
+// Resources describes limits the model should impose on itself.
+// We may enforce these limits from outside if the capability exists.
+message Resources {
+  int64 gpu_memory = 1;  // Bytes.
+}
+
+// TrainerConfig contains configuration information. When a field is unset,
+// the model should keep the current configuration or use a default value.
+// Therefore no fields in this struct should have a valid nil value.
+// If zero must be valid, use a sub-message.
+//
+// This is distinct from any configuration for detectors, suggesters, etc.
+//
+// The `parameters` field represents all the data needed to become a "trained" image,
+// in addition to media and labels passed as a part of the autoML loop.
+message TrainerConfig {
+  map<string, string> class_uuid_to_name = 1;
+  map<string, Parameter> parameters = 2;
+}
+
+// Progress describes the progress of any time-consuming operation.
+// These may be arrayed to express nested stage progress.
+message Progress {
+  string stage = 1;
+  float progress = 2;  // [0.0, 1.0]
+}
+
+message StartRequest {
+  Resources limits = 1;
+}
+message StartResponse {}
+
+message EvictRequest {}
+message EvictResponse {}
+
+message CommitRequest {}
+message CommitResponse {}
+
+message ConfigRequest {
+  TrainerConfig config = 1;
+}
+message ConfigResponse {
+  TrainerConfig config = 1;
+}
+
+message LabelDataAddRequest {
+  repeated Label labels = 1;
+}
+message LabelDataAddResponse {}
+
+message LabelDataRemoveRequest {
+  repeated string label_uuids = 1;  // UUIDs refer to previously added labels.
+}
+message LabelDataRemoveResponse {}
+
+message TrainRequest2 {}
+// TrainResponse is streamed from the model.
+message TrainResponse2 {
+  float self_score = 1;            // [0.0, 1.0] indicating how well the model thinks it's doing.
+  repeated Progress progress = 2;  // Progress of the training cycle, arbitrarily deep stages.
+  string info = 3;                 // Human-readable status for deep-dive UIs.
+  string warning = 4;  // Human-readable warnings that may interrupt at the UI. Use sparingly.
+}
+
+// The Trainer service represents a trainable model.
+// Calls to the trainer are fully async except for the synchronization-related
+// calls (Start, Evict, Commit). The client won't call those while another
+// call it outstanding.
+service Trainer2 {
+  // Start allows the trainer to start consuming resources and writing to disk
+  // in the background or as needed. No other RPCs may be called until Start
+  // returns. (This is independent of other services offered by the container,
+  // such as the Detector service.)
+  //
+  // NOTE: We may sometimes start a container without wanting it to actually
+  // do anything. For example, we must start it to copy files out for upgrade.
+  // In this case, we will not call Start() on this API.
+  rpc Start(StartRequest) returns (StartResponse) {}
+  // Evict asks the model to release its resources temporarily.
+  // It may resume when Start() is called.
+  rpc Evict(EvictRequest) returns (EvictResponse) {}
+  // Commit asks the model to save its state to disk. Writes must be
+  // finished when the call returns, and the disk must not be written again
+  // until Start() is called.
+  rpc Commit(CommitRequest) returns (CommitResponse) {}
+
+  // Config modifies configuration inside the trainer. The trainer should
+  // ignore any unset fields in the Config structure, and return its full
+  // current configuration.
+  rpc Config(ConfigRequest) returns (ConfigResponse) {}
+
+  // LabelDataAdd and LabelDataRemove add and remove label data from the
+  // training set.
+  rpc LabelDataAdd(LabelDataAddRequest) returns (LabelDataAddResponse) {}
+  rpc LabelDataRemove(LabelDataRemoveRequest) returns (LabelDataRemoveResponse) {}
+
+  // Train starts a training cycle.
+  rpc Train(TrainRequest2) returns (stream TrainResponse2) {}
+}

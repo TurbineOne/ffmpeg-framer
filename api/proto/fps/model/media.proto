@@ -1,0 +1,326 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// media.proto describes the media objects we pass around.
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/geometry.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// Rational is a rational number, represented as a fraction, emulating ffmpeg.
+message Rational {
+  int64 num = 1;
+  int64 den = 2;
+}
+
+// MediaSliceSpec is a reference to a particular slice of data within a
+// container object.
+//
+// All fields are optional. These fields are typically used to extract a
+// single frame (e.g., jpg) from a container (e.g., mp4).
+message MediaSliceSpec {
+  // stream_index is an index to a stream in the object, if applicable.
+  int32 stream_index = 1;
+  // offset is a time offset into the object/stream.
+  google.protobuf.Duration offset = 2;
+}
+
+// MediaTransformSpec is a reference to a specific crop region within a media object.
+message MediaTransformSpec {
+  // crop is a 2D rectangle in the object.
+  BoundingBox2D crop = 1;
+
+  // resize is a 2D size to which the object should be resized.
+  // If either dimension is 0, it is scaled to maintain the aspect ratio.
+  // If both crop and resize are specified, resizing occurs after cropping.
+  Size2D resize = 2;
+}
+
+// MediaConvertSpec requests a conversion of a media object to a different format.
+message MediaConvertSpec {
+  enum Format {
+    NONE = 0;  // 0 is the default value, so we make it a no-op.
+
+    MISB_JSON = 1;
+    TIFF = 2;
+    JPEG = 3;
+    PNG = 4;
+    GIF = 5;
+  }
+  Format format = 1;
+}
+
+// MediaFingerprint uniquely identifies the source media object at the URL.
+// It contains enough information to know how the object was sampled and
+// hashed so that it can be reproduced and compared later, even if
+// we change the default way we sample or hash objects.
+//
+// This is used to detect changes to the object, e.g., if a file is
+// replaced or added to. It can also match up objects that are the same
+// but have different URLs, e.g., when a file is copied or moved.
+//
+// For efficiency, we might only sample pieces of the object to generate
+// the fingerprint. The number of samples and their actual size may be chosen
+// based on the object size and a desired sample size.
+//
+// Samples must not overlap, so small objects might have only a single sample.
+// Samples always include the very beginning of the object. If there are at least
+// two samples, the last sample always includes the very end of the object.
+// Any additional samples are evenly distributed across the object.
+message MediaFingerprint {
+  // size is the size of the object in bytes.
+  int64 object_size = 1;
+
+  // Method is what we did to generate the hash.
+  enum Method {
+    NONE = 0;
+
+    // This is currently the default and only method we know, but if we decide
+    // that we need something else later, we can add it here.
+    SUBSAMPLED_3x1024_XXHASH64 = 1;
+  }
+  Method method = 2;
+
+  // hash is a single hash taken over the samples of the object.
+  bytes hash = 3;
+}
+
+// MediaKey refers to a Media object resolvable via the Datalake.
+// MediaKeys are intended to be consistent across time and nodes, so they can
+// be stored as long-lived references in databases.
+message MediaKey {
+  // url is a URL the datalake can resolve to access the object.
+  // This might be a local datalake path, something like:
+  //   dl://localhost/path/to/object.mp4
+  // Or it might from a remote datalake service, like:
+  //   dl://<node-name>/path/to/object.mp4
+  // Or it might be a sensor URL, like:
+  //   rtsp://camera.local:554/live
+  // Or it might be an HTTP URL, like:
+  //   https://mybucket.s3.amazonaws.com/object.mp4
+  //
+  // Datalake URLs follow a set of rules defined by the datalake service,
+  // which is the only way to resolve them. They are opaque to most clients.
+  // If the key refers to a slice, this is the URL of the container from which
+  // the slice is retrieved.
+  string url = 1;
+
+  // fingerprint is provided for URLs that refer to a file that could move or change.
+  // The datalake uses this to discriminate between different versions of the same file.
+  MediaFingerprint fingerprint = 5;
+
+  // slice_spec is is optional. If present, it indicates that the object
+  // at the url should be sliced and only the slice returned.
+  // Unlike the URL, the slice_spec is LEGIBLE to datalake clients in some contexts.
+  // E.g., when a media scrubber isolates a single frame from a stream,
+  // it's OK to craft a slice_spec for it. Clients can also infer information
+  // from the slice spec, e.g., the relative positions of frames over time.
+  // But in general, clients will only pass slice_specs that originated in a
+  // datalake streamer.
+  MediaSliceSpec slice_spec = 2;
+
+  // transform_spec is optional. If present, it indicates that the object
+  // at the url (& slice) should be cropped and/or resized.
+  // The transform_spec is LEGIBLE to datalake clients, who may use it to
+  // request a specific region or resizing of an image.
+  MediaTransformSpec transform_spec = 3;
+
+  // convert_spec is optional. If present, it indicates that the object
+  // at the url (& slice & transform) should be converted to a different format.
+  // The convert_spec is LEGIBLE to datalake clients, who may use it to
+  // request a specific data format. Obviously, not all formats are appropriate
+  // for all objects.
+  MediaConvertSpec convert_spec = 4;
+}
+
+// VideoStreamInfo information about the video stream.
+message VideoStreamInfo {
+  int64 frame_count = 1;  // May be 0 if unsupported by codec or live stream.
+  int32 width = 2;
+  int32 height = 3;
+  double fps = 4;
+}
+
+// AudioStreamInfo information about the audio stream.
+message AudioStreamInfo {
+  int64 sample_count = 1;
+  double samples_per_second = 2;
+  int32 channels = 3;
+}
+
+// SubtitleStreamInfo information about the subtitle stream.
+message SubtitleStreamInfo {}
+
+// DataStreamInfo information about the data stream.
+message DataStreamInfo {}
+
+// AttachmentStreamInfo information about the attachment stream.
+message AttachmentStreamInfo {}
+
+// UnknownStreamInfo information about an unknown stream.
+message UnknownStreamInfo {}
+
+// StreamInfo information about the video and audio streams.
+message StreamInfo {
+  // index is the index of the stream in the container.
+  int32 index = 1;
+
+  // type is the IANA Media Type of the data in this stream, absent conversions.
+  // This is typically a stream type, e.g., streams from "video/mp4" might be
+  // "video/h264".
+  string type = 2;
+
+  // codec may be specified for stream data inside containers.
+  // E.g., "klv" when 'type' is "application/octet-stream".
+  string codec = 3;
+
+  // avg_frame_rate is the average frame rate of the stream, per
+  // ffmpeg AVStream.avg_frame_rate.
+  Rational avg_frame_rate = 4;
+
+  // real_base_frame_rate is the lowest framerate with which all timestamps can be
+  // represented accurately, per ffmpeg AVStream.r_frame_rate
+  Rational real_base_frame_rate = 5;
+
+  // duration is the duration of the stream, if known.
+  google.protobuf.Duration duration = 6;  // May be 0 if unsupported by codec or live stream.
+
+  // metadata is a set of key-value pairs encoded in the container,
+  // e.g., the language of an audio stream.
+  map<string, string> metadata = 7;
+
+  // start_offset is the earliest PTS of the stream. Typically 0, but not always.
+  // If we're extracting a random frame from this stream by using a slice offset,
+  // the range of valid offsets is:
+  //   [start_offset, start_offset + duration)
+  // Because the duration includes the duration of the last frame, the last frame
+  // is actually at start_offset + duration - (1/fps).
+  google.protobuf.Duration start_offset = 8;
+
+  // time_base is the time base of the stream expressed as a fraction of seconds.
+  // This is just useful for understanding the resolution of the timestamps.
+  Rational time_base = 9;
+
+  oneof stream {
+    VideoStreamInfo video = 11;
+    AudioStreamInfo audio = 12;
+    UnknownStreamInfo unknown = 13;
+    SubtitleStreamInfo subtitle = 18;
+    DataStreamInfo data = 19;
+    AttachmentStreamInfo attachment = 20;
+  }
+}
+
+// MediaFileInfo is information about the file containing the media.
+message MediaFileInfo {
+  // name is the base file name, which may be useful for display purposes.
+  // The full path is not exposed.
+  string name = 1;
+  int64 size = 2;
+  google.protobuf.Timestamp modified = 3;
+}
+
+// MediaInfo is information about a piece of media.
+message MediaInfo {
+  // type is the IANA Media Type (previously "MIME Type"), e.g., "video/mp4".
+  string type = 1;
+
+  // codec is optional and may be specified for stream data inside containers.
+  // E.g., "klv" when 'type' is "application/octet-stream".
+  string codec = 2;
+
+  // duration will be 0 if unsupported by codec or live stream.
+  google.protobuf.Duration duration = 3;
+
+  // is_container is true if this media object is a container of other media
+  // objects, e.g., an mp4 file.
+  bool is_container = 4;
+
+  // file_info is optional and generally omitted if the media is not a file.
+  // Only valid for source/container objects backed by an actual file.
+  MediaFileInfo file_info = 5;
+
+  enum PictureType {
+    PICTURE_TYPE_NONE = 0;  ///< Undefined
+    PICTURE_TYPE_I = 1;     ///< Intra
+    PICTURE_TYPE_P = 2;     ///< Predicted
+    PICTURE_TYPE_B = 3;     ///< Bi-dir predicted
+    PICTURE_TYPE_S = 4;     ///< S(GMC)-VOP MPEG-4
+    PICTURE_TYPE_SI = 5;    ///< Switching Intra
+    PICTURE_TYPE_SP = 6;    ///< Switching Predicted
+    PICTURE_TYPE_BI = 7;    ///< BI type
+  };
+  PictureType picture_type = 6;
+
+  // is_keyFrame is true if this media object is a key frame.
+  bool is_keyFrame = 7;
+
+  // is_seekable is true if this media object can be randomly seeked or streamed.
+  // This is false for things like unrecorded live streams.
+  bool is_seekable = 8;
+
+  // streams is a set of streams contained in this container-type object.
+  // May contain valid information even when is_container is false.
+  map<int32, StreamInfo> streams = 10;
+}
+
+// MediaBytes contains the raw bytes of a media object.
+// Only used for tiny payloads like caption text or klv that won't overflow
+// the gRPC message size limit.
+message MediaBytes {
+  bytes data = 1;
+}
+
+// MediaPath points to a file relative to an agreed-upon root.
+message MediaPath {
+  string path = 1;
+
+  // TODO(casey): Think about adding an expiration timestamp if this path
+  // is a temporary cache file.
+}
+
+// MediaFD indicates that this media object was provided alongside a file
+// descriptor, out-of-band.
+message MediaFD {}
+
+// Media is a piece of media on which we're operating. It may be a container
+// (e.g., mp4) or a single frame (e.g., jpg). Single frames might be standalone
+// files or slices from a container/parent object. The presence of a slice_spec
+// in the key indicates whether this is a slice.
+message Media {
+  // key is a reference to the media object.
+  MediaKey key = 1;
+
+  // info is metadata about this media object.
+  MediaInfo info = 2;
+
+  // container_info is optional metadata about the container if this is a slice.
+  MediaInfo container_info = 3;
+
+  // format is the format of the data. Optional.
+  // TODO(casey): I think we don't actually need this anymore...
+  oneof format {
+    MediaBytes media_bytes = 10;
+    MediaPath media_path = 11;
+    MediaFD media_fd = 12;
+  }
+
+  reserved 13;
+}

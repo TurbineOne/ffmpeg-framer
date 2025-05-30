@@ -1,0 +1,41 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// detector.proto describes a service that detects items of interest in frames
+// of data. It is used between the OBOS binary and the detection containers.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/detection.proto";
+import "fps/model/session.proto";
+
+// Detect() runs against the frames in the request and returns any detections.
+message DetectRequest {
+  int32 session_id = 1;
+  Datum datum = 3;
+}
+message DetectResponse {
+  repeated Detection detections = 2;
+}
+
+service Detector {
+  rpc NewSession(NewSessionRequest) returns (NewSessionResponse);
+  rpc Detect(DetectRequest) returns (DetectResponse) {}
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse) {}
+}

@@ -1,0 +1,259 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// parameters.proto provides the messages necessary to both describe the
+// parameters a particular image expects, as well as the values representing
+// a "trained" image, where the user has chosen values and we are ready to
+// begin detecting, etc.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+// https://protobuf.dev/reference/protobuf/google.protobuf
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+import "fps/model/media.proto";
+
+// Parameter definitions - This section is concerned with describing a parameter
+// such that the UI can easily render something for the user to enter a value
+
+// Simple data types where the expectation is a single value
+enum ParameterType {
+  TYPE_UNKNOWN = 0;
+  TYPE_STRING = 1;
+  TYPE_ENUM = 2;
+  TYPE_INT = 3;
+  TYPE_DOUBLE = 4;
+  TYPE_TIMESTAMP = 5;
+  TYPE_DURATION = 6;
+  TYPE_MEDIA_KEY = 7;
+  TYPE_ANNOTATED_DATASET = 8;
+  TYPE_FILE_UPLOAD = 9;
+  TYPE_BOOLEAN = 10;
+}
+
+// ParameterName is meant to include both the "name", which represents the
+// identifier the trainer understands, and the "description" which is more
+// descriptive text to be displayed in the UI.
+message ParameterInfo {
+  string name = 1;
+  string description = 2;
+}
+
+message ParameterListType {
+  ParameterType element_type = 1;
+}
+
+// The ParameterTableType is intended to be used when the model needs parameters
+// in a tabular format, where there are repeating values, broken into distinct
+// columns. The map in the type represents the columns that appear in the "table",
+// and their respective data types.
+message ParameterTableType {
+  map<string, ParameterType> columns = 1;
+}
+
+// An ENUM allows the user to specify a canned set of choices for a particular
+// parameter. Instead of a free-form field, the user will be confined to a set
+// of pre-defined values. In the definition of the ENUM, the `info` field
+// will indicate what is displayed to the user in the list, while the `value`
+// field will have the actual value that needs to be passed to the model for
+// that choice.
+message ParameterEnumEntry {
+  ParameterInfo info = 1;
+  ParameterValue value = 2;
+}
+
+// There is no separate value structure for enums, the expectation is for
+// parameters with `allow_multiselect=False`, the single value chosen
+// will be put into the `scalar_value` field, while if `allow_multiselect=True`
+// then the values will be placed in the `list_value` field.
+message ParameterEnumType {
+  ParameterType enum_type = 1;
+  repeated ParameterEnumEntry choices = 2;
+  bool allow_multiselect = 3;
+}
+
+// The "definition" of an actual parameter, this is where we give it a name,
+// meaningful to the model, and a description, meaningful to the user, and
+// the data type.
+message ParameterDefinition {
+  ParameterInfo info = 1;
+  bool required = 2;
+  oneof type {
+    ParameterType scalar_type = 3;
+    ParameterListType list_type = 4;
+    ParameterTableType table_type = 5;
+    ParameterEnumType enum_type = 6;
+  }
+}
+
+// A definition "set" is a named collection of parameters, really just a
+// container with some additional information, which could be useful to the
+// user.
+// A ParameterDefinitionSet is the base type encoded in the Docker
+// label, describing the set of parameters a particular image expects.
+message ParameterDefinitionSet {
+  ParameterInfo info = 1;
+  repeated ParameterDefinition parameters = 2;
+}
+
+message FileValue {
+  string name = 1;
+  string mime_type = 2;
+  bytes content = 3;
+}
+
+// Parameter values - This section is concerned with the encoding of
+// the values of the parameters a particular model expects.
+// The encoding of the value of our basic data types described above.
+message ParameterValue {
+  oneof value {
+    string string_value = 2;
+    double double_value = 3;
+    int64 int_value = 4;
+    google.protobuf.Timestamp timestamp_value = 5;
+    google.protobuf.Duration duration_value = 6;
+    MediaKey media_key_value = 7;
+    FileValue file_value = 8;
+    bool bool_value = 9;
+  }
+}
+
+// The ParameterList message is a repeating list of values of the same data type:
+// One example would be if you wanted to pass in a list of strings, which represented
+// the names of objects you were looking for:
+//
+//  ==> ParameterDefinitionSet
+//  {
+//    "info": {
+//      "name": "Model-With-A-List",
+//      "description": "A simple example of using a list parameter"
+//    },
+//    "parameters": [
+//      {
+//        "info": {
+//          "name": "object_names",
+//          "description": "List of names of the objects to be found"
+//        },
+//        "required": true,
+//        "listType": { "elementType": "TYPE_STRING" }
+//      }
+//    ]
+//  }
+//
+//  ==> SessionParameters
+//  {
+//    "values": {
+//      "object_names": {
+//        "list": {
+//          "values": [
+//            { "stringValue": "boat" },
+//            { "stringValue": "cruiser" },
+//            { "stringValue": "destroyer" },
+//            { "stringValue": "battleship" },
+//            { "stringValue": "carrier" },
+//          ]
+//        }
+//      }
+//    }
+//  }
+message ParameterList {
+  repeated ParameterValue values = 2;
+}
+
+// The ParameterTable and ParameterRow messages are used to represent data for
+// a ParamterTableType. It is a repeating list of maps of column name to value.
+// One example could be if you wanted to capture a more detailed list of object
+// classes that includes a description field, for more text context data.
+//
+// ==> ParameterDefinitionSet
+//  {
+//    "info": {
+//      "name": "Table-Parameter-Example",
+//      "description": "Example of using a ParameterTableType input message"
+//    },
+//    "parameters": [
+//      {
+//        "info": {
+//          "name": "object_classes",
+//          "description": "List of object classes consisting of [name, description]"
+//        },
+//        "required": true,
+//        "tableType": {
+//          "columns": { "name": "TYPE_STRING", "description": "TYPE_STRING" }
+//        }
+//      }
+//    ]
+//  }
+//
+// And the corresponding session data:
+// ==> SessionParameters
+//  {
+//    "values": {
+//      "object_classes": {
+//        "table": {
+//          "rows": [
+//            {
+//              "values": {
+//                "name": { "stringValue": "dog" },
+//                "description": { "stringValue": "a domesticated dog, but not wild dogs, such as
+//                wolves." }
+//              }
+//            },
+//            {
+//              "values": {
+//                "name": { "stringValue": "cat" },
+//                "description": { "stringValue": "a domesticated cat, but not wild cats, such as
+//                bobcats." }
+//              }
+//            }
+//          ]
+//        }
+//      }
+//    }
+//  }
+//
+// For more examples, see
+// https://github.com/TurbineOne/fps-models-research/t1/experimental/params/examples.py
+
+message ParameterRow {
+  map<string, ParameterValue> values = 1;
+}
+
+message ParameterTable {
+  repeated ParameterRow rows = 1;
+}
+
+// The Parameter message is the core, named parameter for a particular image.
+// It has a name, description, and describes either a simple, scalar value, a
+// list of values, or a table.
+message Parameter {
+  oneof entry {
+    ParameterValue value = 1;
+    ParameterList list = 2;
+    ParameterTable table = 3;
+  }
+}
+
+// SessionParameters is just a wrapper type, for the session parameters label
+// on the Docker image. The label will contain a JSON serialized version of
+// this object.
+message SessionParameters {
+  map<string, Parameter> values = 1;
+}

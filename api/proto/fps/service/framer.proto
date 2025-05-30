@@ -1,0 +1,135 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// framer.proto describes a service that consumes media streams or files
+// and produces a stream of frames.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/service";
+package t1.fps.service;
+
+import "google/protobuf/duration.proto";
+
+import "fps/source.proto";
+import "fps/model/media.proto";
+
+// FrameRequest is a request to start and continue a framing session.
+// The embedded messages must be sent in order:
+//  1. Start
+//  2. Tap
+//  3. NextFrames (repeated)
+//
+//  Optional
+//  - Seek. This can be added to any other request, but, currently
+//    is a noop if added to a NextFrame request.
+message FrameRequest {
+  // The first request MUST be a Start request. The first response will be a
+  // Start response. The Start response will contain a list of the streams
+  // available from the source, mapped by source stream index.
+  message Start {
+    // url is the URL of the source to frame. This can be a file path relative
+    // to the /media mount, or an absolute file, http, or rtsp URL. Aside from
+    // some path cleaning for file URLs, this is passed directly to ffmpeg.
+    string url = 1;
+
+    // file_framing is only valid if the url points to a file or directory.
+    SourceFileFraming file_framing = 2;
+
+    // is_live tells framer whether to treat the source as a live stream.
+    bool is_live = 3;
+  }
+  Start start = 1;
+
+  // The second request MUST be a Tap request. The second response will be a
+  // Tap response.
+  message Tap {
+    // sample describes how to sample frames from the source, if desired.
+    SourceSample sample = 1;
+
+    // stream_indices identify the subset of streams which NextFrames requests
+    // will return. At least one stream MUST be specified.
+    repeated int32 stream_indices = 2;
+
+    reserved 3;
+
+    // output_path is the path of the directory to write frames to. Once frames
+    // are returned in a NextFrames response, it is the caller's responsibility
+    // to clean up the underlying files. If the output_path is not specified,
+    // decoded frames will be returned in-band.
+    string output_path = 4;
+  }
+  Tap tap = 2;
+
+  // The third and subsequent requests MUST be NextFrames requests. The
+  // corresponding responses will be NextFrames responses.
+  message NextFrames {
+    // poll requests an immediate response, even if no frames are pending.
+    bool poll = 1;
+  }
+  NextFrames next_frames = 3;
+
+  // The optional Seek message can be added to any other request, but, currently
+  // is a noop if added to a NextFrame request.
+  // This call only makes sense if the source is a file.
+  message Seek {
+    // time is the offset into the file to seek to.
+    google.protobuf.Duration time = 1;
+    // closest_keyframe indicates whether to seek to the closest keyframe
+    // before the specified time. If false, the seek will be to the exact
+    // time (plus or minus half a frame). Seeking to a keyframe is faster,
+    // but may not be as accurate since the keyframe may be before the specified time.
+    bool closest_keyframe = 2;
+  }
+  Seek seek = 4;
+}
+
+// FrameResponse is a response to a FrameRequest. Each field aligns with the
+// corresponding request field.
+message FrameResponse {
+  message Start {
+    // media_info is the media information for the source.
+    model.MediaInfo media_info = 1;
+  }
+  Start start = 1;
+
+  message Tap {}
+  Tap tap = 2;
+
+  message NextFrames {
+    reserved 1;
+
+    // medias may contain multiple temporally-related frames, e.g., an image
+    // and corresponding camera pose or image coordinates. Indices into this
+    // array DO NOT correspond to source stream indices.
+    //
+    // May contain no frames if the poll flag was set in the request,
+    // or in certain internal error conditions.
+    repeated model.Media medias = 2;
+  }
+  NextFrames next_frames = 3;
+}
+
+// Framer represents a service that converts a media stream or file into a
+// series of frames.
+//
+// The Framer operates by sessions, so multiple sessions can share a single
+// network stream and receive frames independently at different rates, while
+// the stream is also being recorded. The Framer only stops consuming a stream
+// when all the corresponding framing and recording sessions have stopped.
+service Framer {
+  rpc Frame(stream FrameRequest) returns (stream FrameResponse);
+}

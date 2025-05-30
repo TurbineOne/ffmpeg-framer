@@ -1,0 +1,72 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// migrator.proto describes a service that a model can implement to allow
+// upgrades and portability of model internals, like weights and tuning.
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+// IngestFileCopy and IngestFileResult are streamed.
+// The server initially sends an IngestFileCopy specifying a file path to
+// retrieve from the other model container, and a destination path to write it
+// inside the server model container. The client conducts the copy operation and
+// then sends an IngestFileResult to indicate completion or an error.
+//
+// NOTE: This approach is modeled on what the Docker Client API provides us:
+// https://pkg.go.dev/github.com/docker/docker/client#Client.CopyFromContainer
+// https://pkg.go.dev/github.com/docker/docker/client#Client.CopyToContainer
+//
+// The Docker API copies directories recursively.
+message IngestFileResult {
+  string source_path = 1;  // Path inside the other container.
+  string dest_path = 2;    // Path inside this container.
+  string error = 3;        // The model may choose to ignore or fail.
+}
+message IngestFileCopy {
+  string source_path = 1;  // Path inside the other container.
+  string dest_path = 2;    // Path inside this container.
+}
+
+// ExportResponse contains a list of files that can be copied to a clean
+// copy of the base image of the same version to produce a copy of the model.
+// These files will be copied out of the running container, so no other
+// calls should be made to the model until the files are copied.
+// NOTE: It's up to the caller (obos) to preserve external metadata
+// such as container image labels, generally by injecting a metadata file.
+message ExportRequest {}
+message ExportResponse {
+  repeated string paths = 1;
+}
+
+// Models with disk state that changes over time may implement the Migrator
+// service to allow for preservation of state across nodes and base image upgrades.
+service Migrator {
+  // Ingest directs the model to ingest files from another image based on the
+  // same architecture. Typically, this will be an earlier, incompatible version
+  // from which we want to extract weights, config, and other relevant data.
+  // After this call returns, the model will be committed as a new image.
+  // Note: For this call the server sends the requests and the client sends the
+  // responses.
+  rpc Ingest(stream IngestFileResult) returns (stream IngestFileCopy) {}
+
+  // Export allows a model to be transferred to other hosts
+  // without having to copy the entire container. It should be effectively like
+  // copying the later layers of the docker image vs. the base image.
+  // Export only needs to support copies to the same base image version.
+  rpc Export(ExportRequest) returns (ExportResponse) {}
+}

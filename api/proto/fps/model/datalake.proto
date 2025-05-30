@@ -1,0 +1,56 @@
+// Frontline Perception System
+// Copyright (C) 2020-2025 TurbineOne LLC
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+// datalake.proto describes a data lake service.
+
+syntax = "proto3";
+
+option go_package = "github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model";
+package t1.fps.model;
+
+import "fps/model/media.proto";
+
+// The model-facing DataLake service doesn't use gRPC.
+// Instead, we send protobuf-encoded requests and responses
+// in lock-step over a unix domain socket.
+
+// The socket uses SEQ_PACKET so we don't have to delimit messages.
+// However, this means we need to agree a priori to a max message size.
+// To that end, we'll say that neither side should send a message larger than 64 KB.
+// If the server's response would exceed 64 KB, it may just close the connection.
+
+// DataLakeMediaRequest is sent by the model to request media objects.
+// These objects may be the original media files or specific slices of them.
+message DataLakeUDSMediaRequest {
+  MediaKey key = 1;
+
+  // signature is an opaque string that authenticates the url, if needed.
+  // Signature strings are NOT consistent across time or nodes, so they should
+  // not be stored in databases.
+  string signature = 2;
+
+  // meta_only indicates that the model only wants the metadata for the media
+  // object (i.e., the resulting Media.format is empty.).
+  bool meta_only = 3;
+}
+
+// DataLakeMediaResponse is sent by the data lake in response to a request.
+// It contains the requested media object, which will be of format "MediaFD."
+// The UDS message will include the file descriptor transfer.
+message DataLakeUDSMediaResponse {
+  Media media = 1;
+  string error = 2;
+}
