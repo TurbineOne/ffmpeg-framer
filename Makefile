@@ -2,7 +2,7 @@
 .PHONY: all clean
 
 # Binaries
-BINARIES = framer-server
+BINARIES = framer
 
 # Go build command
 GO_BUILD = go build -o
@@ -15,7 +15,7 @@ protos: api/proto/fps/model/*.proto api/proto/fps/service/*.proto api/proto/fps/
 	mkdir -p api/proto/gen/go && protoc --proto_path=api/proto $(PROTOC_OPTS) api/proto/fps/model/*.proto api/proto/fps/service/*.proto api/proto/fps/*.proto
 
 $(BINARIES): protos
-	$(GO_BUILD) ./out/$@ ./cmd/$@/main.go
+	$(GO_BUILD) ./out/$@ ./cmd/$@/*.go
 
 clean:
 	rm -rf ./out/ ./gen/ $(BINARIES)
