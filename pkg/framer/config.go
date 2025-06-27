@@ -32,9 +32,7 @@ type Config struct {
 // ConfigDefault is the default value for Config.
 func ConfigDefault() Config {
 	return Config{
-		LogLevel:          "<inherit>",
-		FfmpegLogLevel:    "verbose", // "debug"
-		HwDecoderEnable:   true,
-		ServiceSocketRoot: "/service-socket",
+		LogLevel:       "<inherit>",
+		FfmpegLogLevel: "verbose", // "debug"
 	}
 }
