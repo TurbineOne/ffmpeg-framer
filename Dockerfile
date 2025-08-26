@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 ENV GOLANG_VERSION=1.23.9
 ENV GOLANG_CHECKSUM=de03e45d7a076c06baaa9618d42b3b6a0561125b87f6041c6397680a71e5bb26
@@ -15,17 +15,85 @@ ENV PROTOC_ARCH=linux-x86_64
 # ENV PROTOC_ARCH=linux-aarch_64
 
 RUN apt-get update && apt-get install -y \
-        wget \
         build-essential \
+        git \
+        nasm \
         pkg-config \
         unzip \
-        ffmpeg \
-        libavcodec-dev \
-        libavdevice-dev \
-        libavfilter-dev \
-        libavformat-dev \
-        libavutil-dev \
+        wget \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+RUN dpkg -i cuda-keyring_1.1-1_all.deb
+RUN apt update
+RUN apt install nvidia-driver-580 -y
+RUN apt install cuda-toolkit-13-0 -y
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda-1.1-1/lib64
+
+RUN apt install -y \
+    frei0r-plugins-dev libaom-dev libavc1394-dev libbluray-dev libbs2b-dev \
+    libcaca-dev libdav1d-dev libdc1394-dev libfribidi-dev libgnutls28-dev \
+    libharfbuzz-dev libiec61883-dev liblilv-dev libomxil-bellagio-dev \
+    libopenjp2-7-dev libraw1394-dev librsvg2-dev libsdl2-dev libsnappy-dev \
+    libsrt-gnutls-dev libtheora-dev libvidstab-dev libx264-dev libx265-dev \
+    libxvidcore-dev libzimg-dev libzvbi-dev ocl-icd-opencl-dev opencl-headers
+
+WORKDIR /
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
+WORKDIR /nv-codec-headers
+
+RUN make
+RUN make install
+
+WORKDIR /
+RUN git clone https://github.com/FFmpeg/FFmpeg.git
+WORKDIR /FFmpeg 
+RUN git checkout n7.0
+
+RUN ./configure \
+  --extra-version=0fps \
+  --enable-shared \
+  --disable-static \
+  --enable-gpl \
+  --enable-libx264 \
+  --enable-libfreetype \
+  --enable-libfontconfig \
+  --enable-libharfbuzz \
+  --enable-gnutls \
+  --enable-libaom \
+  --enable-libbluray \
+  --enable-libbs2b \
+  --enable-libcaca \
+  --enable-libdav1d \
+  --enable-libfribidi \
+  --enable-libopenjpeg \
+  --enable-libsnappy \
+  --enable-libsrt \
+  --enable-libtheora \
+  --enable-libvidstab \
+  --enable-libwebp \
+  --enable-libxvid \
+  --enable-libzimg \
+  --enable-libzvbi \
+  --enable-lv2 \
+  --enable-omx \
+  --enable-opencl \
+  --enable-opengl \
+  --enable-sdl2 \
+  --enable-librsvg \
+  --enable-libdc1394 \
+  --enable-libdrm \
+  --enable-libiec61883 \
+  --enable-frei0r \
+  --enable-libx264 \
+  --enable-libx265 \
+  || (cat ffbuild/config.log && false)
+
+RUN make -j$(nproc)
+RUN make install
+RUN ldconfig
 
 # Install golang
 RUN wget -q -O /tmp/go${GOLANG_VERSION}.${GOLANG_ARCH}.tar.gz https://go.dev/dl/go${GOLANG_VERSION}.${GOLANG_ARCH}.tar.gz \
@@ -63,4 +131,4 @@ WORKDIR /app
 
 ENTRYPOINT ["/bin/bash", "-c"]
 
-CMD ["/app/bin/framer-server"]
+CMD ["/app/bin/framer"]

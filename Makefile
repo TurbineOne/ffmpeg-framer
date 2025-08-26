@@ -19,3 +19,6 @@ $(BINARIES): protos
 
 clean:
 	rm -rf ./out/ ./gen/ $(BINARIES)
+
+docker:
+	docker build -t standalone-framer:latest .
