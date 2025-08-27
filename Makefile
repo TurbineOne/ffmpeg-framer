@@ -21,4 +21,4 @@ clean:
 	rm -rf ./out/ ./gen/ $(BINARIES)
 
 docker:
-	docker build -t standalone-framer:latest .
+	docker build -t standalone-framer:7.0.0 .
