@@ -19,10 +19,10 @@ package framer
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 
 	"github.com/asticode/go-astiav"
+	"github.com/asticode/go-astikit"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/TurbineOne/ffmpeg-framer/api/proto/gen/go/fps/model"
@@ -66,6 +66,7 @@ var mimeTypeToExtension = map[string]string{
 var (
 	buffersrcFlags  = astiav.NewBuffersrcFlags(astiav.BuffersrcFlagKeepRef)
 	buffersinkFlags = astiav.NewBuffersinkFlags()
+	closer          = astikit.NewCloser()
 )
 
 type wrapperInvalidError struct{}
@@ -102,8 +103,8 @@ type frameWrapper struct {
 	encCodec          *astiav.Codec
 	encCodecContext   *astiav.CodecContext
 	filterGraph       *astiav.FilterGraph
-	buffersinkContext *astiav.FilterContext
-	buffersrcContext  *astiav.FilterContext
+	buffersinkContext *astiav.BuffersinkFilterContext
+	buffersrcContext  *astiav.BuffersrcFilterContext
 	filterFrame       *astiav.Frame
 	encPkt            *astiav.Packet
 	inputValid        bool
@@ -157,84 +158,91 @@ func newFrameWrapper(mediaType astiav.MediaType, sourceStreamIndex int,
 //
 //nolint:funlen // Long but linear.
 func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
-	var args astiav.FilterArgs
-
-	var buffersrc, buffersink *astiav.Filter
-
+	var err error
 	// content is the *actual filter* we're doing on the data.
 	// Almost everything else is just boilerplate.
-	var content string
+	//var content string
+
+	// Create filter contexts
+	if fw.filterGraph = astiav.AllocFilterGraph(); fw.filterGraph == nil {
+		return fmt.Errorf("allocating filter graph failed: %w", err)
+	}
+	closer.Add(fw.filterGraph.Free)
+
+	buffersrc := astiav.FindFilterByName("buffer")
+	if buffersrc == nil {
+		return &filterFindError{"buffersrc"}
+	}
+
+	buffersink := astiav.FindFilterByName("buffersink")
+	if buffersink == nil {
+		return &filterFindError{"buffersink"}
+	}
+
+	if fw.buffersrcContext, err = fw.filterGraph.NewBuffersrcFilterContext(buffersrc, "in"); err != nil {
+		return fmt.Errorf("creating buffersrc context failed: %w", err)
+	}
+
+	if fw.buffersinkContext, err = fw.filterGraph.NewBuffersinkFilterContext(buffersink, "in"); err != nil {
+		return fmt.Errorf("creating buffersink context failed: %w", err)
+	}
+
+	buffersrcContextParameters := astiav.AllocBuffersrcFilterContextParameters()
+	defer buffersrcContextParameters.Free()
 
 	switch decCodecContext.MediaType() {
 	case astiav.MediaTypeVideo:
-		args = astiav.FilterArgs{
-			"pix_fmt":      strconv.Itoa(int(decCodecContext.PixelFormat())),
-			"pixel_aspect": decCodecContext.SampleAspectRatio().String(),
-			"time_base":    decCodecContext.TimeBase().String(),
-			"video_size":   strconv.Itoa(decCodecContext.Width()) + "x" + strconv.Itoa(decCodecContext.Height()),
-		}
-		buffersrc = astiav.FindFilterByName("buffer")
-		buffersink = astiav.FindFilterByName("buffersink")
-		content = fmt.Sprintf("format=pix_fmts=%s", fw.encCodecContext.PixelFormat().Name())
+		buffersrcContextParameters.SetPixelFormat(decCodecContext.PixelFormat())
+		buffersrcContextParameters.SetSampleAspectRatio(decCodecContext.SampleAspectRatio())
+		buffersrcContextParameters.SetTimeBase(decCodecContext.TimeBase())
+		buffersrcContextParameters.SetHeight(decCodecContext.Height())
+		buffersrcContextParameters.SetWidth(decCodecContext.Width())
+		// content = fmt.Sprintf("format=pix_fmts=%s", fw.encCodecContext.PixelFormat().Name())
 
 	case astiav.MediaTypeAudio:
-		args = astiav.FilterArgs{
-			"channel_layout": decCodecContext.ChannelLayout().String(),
-			"sample_fmt":     decCodecContext.SampleFormat().Name(),
-			"sample_rate":    strconv.Itoa(decCodecContext.SampleRate()),
-			"time_base":      decCodecContext.TimeBase().String(),
-		}
-		buffersrc = astiav.FindFilterByName("abuffer")
-		buffersink = astiav.FindFilterByName("abuffersink")
-		content = fmt.Sprintf("aformat=sample_fmts=%s:channel_layouts=%s",
-			fw.encCodecContext.SampleFormat().Name(), fw.encCodecContext.ChannelLayout().String())
+		buffersrcContextParameters.SetChannelLayout(decCodecContext.ChannelLayout())
+		buffersrcContextParameters.SetSampleFormat(decCodecContext.SampleFormat())
+		buffersrcContextParameters.SetSampleRate(decCodecContext.SampleRate())
+		buffersrcContextParameters.SetTimeBase(decCodecContext.TimeBase())
+		// content = fmt.Sprintf("aformat=sample_fmts=%s:channel_layouts=%s",
+		// 	fw.encCodecContext.SampleFormat().Name(), fw.encCodecContext.ChannelLayout().String())
 
 	default:
 		// No filtering needed.
 		return nil
 	}
 
-	if buffersrc == nil {
-		return &filterFindError{"buffersrc"}
+	// Set buffersrc context parameters
+	if err = fw.buffersrcContext.SetParameters(buffersrcContextParameters); err != nil {
+		return fmt.Errorf("main: setting buffersrc context parameters failed: %w", err)
 	}
 
-	if buffersink == nil {
-		return &filterFindError{"buffersink"}
-	}
-
-	// Create filter contexts
-	fw.filterGraph = astiav.AllocFilterGraph()
-
-	var err error
-	if fw.buffersrcContext, err = fw.filterGraph.NewFilterContext(buffersrc, "in", args); err != nil {
-		return fmt.Errorf("creating buffersrc context failed: %w", err)
-	}
-
-	if fw.buffersinkContext, err = fw.filterGraph.NewFilterContext(buffersink, "in", nil); err != nil {
-		return fmt.Errorf("creating buffersink context failed: %w", err)
+	// Initialize buffersrc context
+	if err = fw.buffersrcContext.Initialize(nil); err != nil {
+		return fmt.Errorf("main: initializing buffersrc context failed: %w", err)
 	}
 
 	// The Filter I/O's express the pad they want to connect to, so we tell
 	// the Outputs I/O that it's wired to the "in" pad of the buffersrc context
 	// and vice-versa.
 	inputs := astiav.AllocFilterInOut()
-	defer inputs.Free()
+	closer.Add(inputs.Free)
 
 	inputs.SetName("out")
-	inputs.SetFilterContext(fw.buffersinkContext)
+	inputs.SetFilterContext(fw.buffersinkContext.FilterContext())
 	inputs.SetPadIdx(0)
 	inputs.SetNext(nil)
 
 	outputs := astiav.AllocFilterInOut()
-	defer outputs.Free()
+	closer.Add(outputs.Free)
 
 	outputs.SetName("in")
-	outputs.SetFilterContext(fw.buffersrcContext)
+	outputs.SetFilterContext(fw.buffersrcContext.FilterContext())
 	outputs.SetPadIdx(0)
 	outputs.SetNext(nil)
 
 	// Parse
-	if err = fw.filterGraph.Parse(content, inputs, outputs); err != nil {
+	if err = fw.filterGraph.Parse("transpose=cclock", inputs, outputs); err != nil {
 		return fmt.Errorf("parsing filter failed: %w", err)
 	}
 
@@ -243,6 +251,8 @@ func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
 		return fmt.Errorf("configuring filter failed: %w", err)
 	}
 
+	fw.filterFrame = astiav.AllocFrame()
+	closer.Add(fw.filterFrame.Free)
 	return nil
 }
 
@@ -284,7 +294,7 @@ func (fw *frameWrapper) Init(decCodecContext *astiav.CodecContext, rawURL string
 			fw.encCodecContext.SetSampleFormat(decCodecContext.SampleFormat())
 		}
 
-		fw.encCodecContext.SetChannels(decCodecContext.Channels())
+		fw.encCodecContext.SetChannelLayout(decCodecContext.ChannelLayout())
 		fw.encCodecContext.SetSampleRate(decCodecContext.SampleRate())
 
 	default:
@@ -468,7 +478,7 @@ func (fw *frameWrapper) ToModelMedia() *model.Media {
 	}
 
 	// Else, we have a filter.
-	if err := fw.buffersrcContext.BuffersrcAddFrame(fw.Frame, buffersrcFlags); err != nil {
+	if err := fw.buffersrcContext.AddFrame(fw.Frame, buffersrcFlags); err != nil {
 		log.Info().Int(lIndex, fw.streamIndex).Err(err).Msg("buffersrc add frame error")
 
 		return nil
@@ -476,7 +486,7 @@ func (fw *frameWrapper) ToModelMedia() *model.Media {
 
 	fw.filterFrame.Unref()
 
-	if err := fw.buffersinkContext.BuffersinkGetFrame(fw.filterFrame, buffersinkFlags); err != nil {
+	if err := fw.buffersinkContext.GetFrame(fw.filterFrame, buffersinkFlags); err != nil {
 		if !errors.Is(err, astiav.ErrEof) && !errors.Is(err, astiav.ErrEagain) {
 			log.Info().Int(lIndex, fw.streamIndex).Err(err).Msg("buffersink get frame error")
 		}
@@ -493,7 +503,7 @@ func (fw *frameWrapper) ToModelMedia() *model.Media {
 	var err error
 	for err == nil {
 		fw.filterFrame.Unref()
-		err = fw.buffersinkContext.BuffersinkGetFrame(fw.filterFrame, buffersinkFlags)
+		err = fw.buffersinkContext.GetFrame(fw.filterFrame, buffersinkFlags)
 	}
 
 	return fw.modelMedia

@@ -74,7 +74,7 @@ const (
 	lSquelch             = "squelch count"
 )
 
-func ffmpegLogCallback(l astiav.LogLevel, fmt, msg, parent string) {
+func ffmpegLogCallback(_ astiav.Classer, l astiav.LogLevel, fmt, msg string) {
 	// FFmpeg sometimes logs a single "." to indicated progress. We just ignore it.
 	if msg == ".\n" {
 		return

@@ -212,13 +212,13 @@ func ffmpegStreamToStreamInfo(ffmpegStream *astiav.Stream) *model.StreamInfo {
 			FrameCount: ffmpegStream.NbFrames(),
 			Width:      int32(ffmpegStream.CodecParameters().Width()),
 			Height:     int32(ffmpegStream.CodecParameters().Height()),
-			Fps:        ffmpegStream.RFrameRate().ToDouble(),
+			Fps:        ffmpegStream.RFrameRate().Float64(),
 		}}
 	case astiav.MediaTypeAudio:
 		streamInfo.Stream = &model.StreamInfo_Audio{Audio: &model.AudioStreamInfo{
 			SampleCount:      ffmpegStream.NbFrames(),
 			SamplesPerSecond: float64(ffmpegStream.CodecParameters().SampleRate()),
-			Channels:         int32(ffmpegStream.CodecParameters().Channels()),
+			Channels:         int32(ffmpegStream.CodecParameters().ChannelLayout().Channels()),
 		}}
 	case astiav.MediaTypeSubtitle:
 		streamInfo.Stream = &model.StreamInfo_Subtitle{Subtitle: &model.SubtitleStreamInfo{}}

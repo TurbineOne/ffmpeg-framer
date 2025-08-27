@@ -156,7 +156,7 @@ func (st *decStream) initFrameDecoder(inputFormatContext *astiav.FormatContext,
 			st.decCodecContext.SetSampleRate(guessSampleRate)
 		}
 
-		if st.decCodecContext.ChannelLayout() == 0 {
+		if st.decCodecContext.ChannelLayout().Channels() == 0 {
 			log.Info().Int(lIndex, input.Index()).Str(lCodec, decCodec.Name()).
 				Msg("guessing channel layout for audio stream")
 			st.decCodecContext.SetChannelLayout(astiav.ChannelLayoutStereo)
