@@ -175,6 +175,8 @@ func (st *decStream) initFrameDecoder(inputFormatContext *astiav.FormatContext,
 		}
 	}
 
+	st.decCodecContext.SetTimeBase(input.TimeBase())
+
 	if err = st.decCodecContext.Open(decCodec, nil); err != nil {
 		err = fmt.Errorf("opening decoder context failed: %w", err)
 

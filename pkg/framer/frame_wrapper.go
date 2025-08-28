@@ -161,7 +161,7 @@ func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
 	var err error
 	// content is the *actual filter* we're doing on the data.
 	// Almost everything else is just boilerplate.
-	//var content string
+	var content string
 
 	// Create filter contexts
 	if fw.filterGraph = astiav.AllocFilterGraph(); fw.filterGraph == nil {
@@ -169,47 +169,56 @@ func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
 	}
 	closer.Add(fw.filterGraph.Free)
 
-	buffersrc := astiav.FindFilterByName("buffer")
-	if buffersrc == nil {
-		return &filterFindError{"buffersrc"}
+	// Create our buffer source and sink contexts.
+	buffersrcContextParameters := astiav.AllocBuffersrcFilterContextParameters()
+	defer buffersrcContextParameters.Free()
+
+	var buffersrc, buffersink *astiav.Filter
+	switch decCodecContext.MediaType() {
+	case astiav.MediaTypeVideo:
+		buffersrc = astiav.FindFilterByName("buffer")
+		buffersrcContextParameters.SetPixelFormat(decCodecContext.PixelFormat())
+		buffersrcContextParameters.SetSampleAspectRatio(decCodecContext.SampleAspectRatio())
+		buffersrcContextParameters.SetHeight(decCodecContext.Height())
+		buffersrcContextParameters.SetWidth(decCodecContext.Width())
+		buffersink = astiav.FindFilterByName("buffersink")
+		content = fmt.Sprintf("format=pix_fmts=%s", fw.encCodecContext.PixelFormat().Name())
+
+	case astiav.MediaTypeAudio:
+		buffersrc = astiav.FindFilterByName("abuffer")
+		buffersrcContextParameters.SetChannelLayout(decCodecContext.ChannelLayout())
+		buffersrcContextParameters.SetSampleFormat(decCodecContext.SampleFormat())
+		buffersrcContextParameters.SetSampleRate(decCodecContext.SampleRate())
+		buffersrcContextParameters.SetHeight(100) // Dummy values to avoid validation errors.
+		buffersrcContextParameters.SetWidth(100)
+		buffersink = astiav.FindFilterByName("abuffersink")
+		content = fmt.Sprintf("aformat=sample_fmts=%s:channel_layouts=%s",
+			fw.encCodecContext.SampleFormat().Name(), fw.encCodecContext.ChannelLayout().String())
+	default:
+		return nil // No filter for other media types.
 	}
 
-	buffersink := astiav.FindFilterByName("buffersink")
-	if buffersink == nil {
-		return &filterFindError{"buffersink"}
+	if buffersrc == nil {
+		err := fmt.Errorf("buffersrc is nil - failed to find filter")
+		log.Err(err).Msg("filter init error")
+		return err
 	}
+
+	if buffersink == nil {
+		err := fmt.Errorf("buffersink is nil - failed to find filter")
+		log.Err(err).Msg("filter init error")
+		return err
+	}
+
+	buffersrcContextParameters.SetTimeBase(decCodecContext.TimeBase())
+	buffersrcContextParameters.SetFramerate(decCodecContext.Framerate())
 
 	if fw.buffersrcContext, err = fw.filterGraph.NewBuffersrcFilterContext(buffersrc, "in"); err != nil {
 		return fmt.Errorf("creating buffersrc context failed: %w", err)
 	}
 
-	if fw.buffersinkContext, err = fw.filterGraph.NewBuffersinkFilterContext(buffersink, "in"); err != nil {
+	if fw.buffersinkContext, err = fw.filterGraph.NewBuffersinkFilterContext(buffersink, "out"); err != nil {
 		return fmt.Errorf("creating buffersink context failed: %w", err)
-	}
-
-	buffersrcContextParameters := astiav.AllocBuffersrcFilterContextParameters()
-	defer buffersrcContextParameters.Free()
-
-	switch decCodecContext.MediaType() {
-	case astiav.MediaTypeVideo:
-		buffersrcContextParameters.SetPixelFormat(decCodecContext.PixelFormat())
-		buffersrcContextParameters.SetSampleAspectRatio(decCodecContext.SampleAspectRatio())
-		buffersrcContextParameters.SetTimeBase(decCodecContext.TimeBase())
-		buffersrcContextParameters.SetHeight(decCodecContext.Height())
-		buffersrcContextParameters.SetWidth(decCodecContext.Width())
-		// content = fmt.Sprintf("format=pix_fmts=%s", fw.encCodecContext.PixelFormat().Name())
-
-	case astiav.MediaTypeAudio:
-		buffersrcContextParameters.SetChannelLayout(decCodecContext.ChannelLayout())
-		buffersrcContextParameters.SetSampleFormat(decCodecContext.SampleFormat())
-		buffersrcContextParameters.SetSampleRate(decCodecContext.SampleRate())
-		buffersrcContextParameters.SetTimeBase(decCodecContext.TimeBase())
-		// content = fmt.Sprintf("aformat=sample_fmts=%s:channel_layouts=%s",
-		// 	fw.encCodecContext.SampleFormat().Name(), fw.encCodecContext.ChannelLayout().String())
-
-	default:
-		// No filtering needed.
-		return nil
 	}
 
 	// Set buffersrc context parameters
@@ -242,7 +251,7 @@ func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
 	outputs.SetNext(nil)
 
 	// Parse
-	if err = fw.filterGraph.Parse("transpose=cclock", inputs, outputs); err != nil {
+	if err = fw.filterGraph.Parse(content, inputs, outputs); err != nil {
 		return fmt.Errorf("parsing filter failed: %w", err)
 	}
 
@@ -253,6 +262,10 @@ func (fw *frameWrapper) initFilter(decCodecContext *astiav.CodecContext) error {
 
 	fw.filterFrame = astiav.AllocFrame()
 	closer.Add(fw.filterFrame.Free)
+
+	// Allocate packet
+	fw.encPkt = astiav.AllocPacket()
+	closer.Add(fw.encPkt.Free)
 	return nil
 }
 
@@ -273,6 +286,7 @@ func (fw *frameWrapper) Init(decCodecContext *astiav.CodecContext, rawURL string
 		}
 
 		fw.encCodecContext.SetSampleAspectRatio(decCodecContext.SampleAspectRatio())
+		fw.encCodecContext.SetFramerate(decCodecContext.Framerate())
 		fw.encCodecContext.SetHeight(decCodecContext.Height())
 		fw.encCodecContext.SetWidth(decCodecContext.Width())
 		// We manually set quantization to require high quality from the encoder.
