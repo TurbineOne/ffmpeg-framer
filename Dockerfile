@@ -93,6 +93,8 @@ RUN ./configure \
 
 RUN make -j$(nproc)
 RUN make install
+
+RUN rm /etc/ld.so.conf.d/jetson-stubs.conf
 RUN ldconfig
 
 # Install golang
