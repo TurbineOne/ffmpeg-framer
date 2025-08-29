@@ -14,6 +14,7 @@ require (
 require (
 	github.com/asticode/go-astikit v0.42.0
 	github.com/caarlos0/env/v6 v6.10.1
+	github.com/golang/protobuf v1.5.4
 	github.com/mattn/go-isatty v0.0.19
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c
 )

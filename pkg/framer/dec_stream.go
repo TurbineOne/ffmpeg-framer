@@ -25,14 +25,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var codecIDToHwDecoder = map[astiav.CodecID]string{
-	astiav.CodecIDH264:       "h264_cuvid",
-	astiav.CodecIDHevc:       "hevc_cuvid",
-	astiav.CodecIDMpeg2Video: "mpeg2_cuvid",
-	astiav.CodecIDMpeg4:      "mpeg4_cuvid",
-	astiav.CodecIDVc1:        "vc1_cuvid",
-	astiav.CodecIDVp8:        "vp8_cuvid",
-	astiav.CodecIDVp9:        "vp9_cuvid",
+var codecIDToHwDecoder = map[astiav.CodecID][]string{
+	astiav.CodecIDH264:       {"h264_cuvid", "h264_nvmpi"},
+	astiav.CodecIDHevc:       {"hevc_cuvid"},
+	astiav.CodecIDMpeg2Video: {"mpeg2_cuvid"},
+	astiav.CodecIDMpeg4:      {"mpeg4_cuvid"},
+	astiav.CodecIDVc1:        {"vc1_cuvid"},
+	astiav.CodecIDVp8:        {"vp8_cuvid"},
+	astiav.CodecIDVp9:        {"vp9_cuvid"},
 }
 
 type SkippedCodecError struct {
@@ -212,11 +212,18 @@ func (st *decStream) Init(inputFormatContext *astiav.FormatContext, input *astia
 
 	var decCodec *astiav.Codec
 
-	if decName, ok := codecIDToHwDecoder[input.CodecParameters().CodecID()]; ok && hwAccel {
-		log.Debug().Int(lIndex, input.Index()).Str(lCodec, input.CodecParameters().CodecID().Name()).
-			Str(lDecoder, decName).Msg("using hardware decoder")
-
-		decCodec = astiav.FindDecoderByName(decName)
+	if hwAccel {
+		if possibleDecoders, ok := codecIDToHwDecoder[input.CodecParameters().CodecID()]; ok {
+			for _, decoder := range possibleDecoders {
+				if decCodec = astiav.FindDecoderByName(decoder); decCodec != nil {
+					log.Info().Str("hw codec", decoder).Msg("found hw codec")
+					break
+				}
+			}
+		}
+		if decCodec == nil {
+			log.Warn().Any("codec", input.CodecParameters().CodecID().Name()).Msg("could not find hw codec")
+		}
 	}
 
 	if decCodec == nil {
